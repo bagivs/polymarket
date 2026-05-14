@@ -15,6 +15,7 @@ Her yeni conversation'da once **bu uc dosyayi** oku, sonra calismaya basla:
 Sonra ihtiyac olursa:
 - [docs/GLOSSARY.md](docs/GLOSSARY.md) — Polymarket terimleri (CLOB, conditional token, vs.)
 - [docs/sprints/sprint-NN-xxx/](docs/sprints/) — Aktif sprintin prompt + result dosyalari
+- [https://docs.polymarket.com/](https://docs.polymarket.com/) — Polymarket'in resmi dokumani (API)
 
 ## Calisma akisi (kurallar)
 
