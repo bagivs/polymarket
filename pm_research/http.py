@@ -20,6 +20,7 @@ log = logging.getLogger(__name__)
 HOST_LIMITS: dict[str, tuple[float, float]] = {
     "data-api.polymarket.com": (10, 1),
     "lb-api.polymarket.com": (3, 1),
+    "user-pnl-api.polymarket.com": (5, 1),
     "gamma-api.polymarket.com": (20, 1),
     "clob.polymarket.com": (75, 1),
 }

@@ -235,3 +235,97 @@ Trade-cashflow (BUY-SELL+REDEEM, son N gun) ile lb-api lifetime karsilastirmasi:
 - 1-2 saat is + run; sonuc kotuyse Yon II'ye revert kolay
 - Ayrica yan urun: `pm_research/discover.py`'in /holders + recent-trades varyantı genel-amaclı, sonraki sprintlerde de lazim
 
+---
+
+## 9. POST-VALIDATION-V2 GERCEKLEME (2026-05-14, ayni gun)
+
+> Once §8'i okudugun varsayilir. §8'de "lb-api period broken, gercek zaman-pencereli P&L yok" diye yazmistim. **Bu da yarim dogruydu.** Kullanici bonereaper'in profile'inde "+$277K aylık P&L" gozuktugunu hatirlattı; o sayinin nereden geldigini probelayinca **`user-pnl-api.polymarket.com`** isimli ayri bir service buldum. **Gercek period-windowed PnL var — sadece lb-api'da degil, farkli subdomain'de.**
+
+### 9.1 Yeni endpoint
+```
+GET https://user-pnl-api.polymarket.com/user-pnl
+    ?user_address=0x...      # snake_case zorunlu
+    &interval=1d|1w|1m|all|max
+    &fidelity=1d|1h          # bucket size
+
+Don: [{"t": <unix>, "p": <cumulative_pnl_usd>}, ...] timeseries
+```
+
+Bonereaper dogrulama: API +$282,952 (1m). Kullanici sayisi +$277,854. Fark $5K = sayfanın ne zaman izlendiği vs simdi arasi market fluctuation. **EŞLEŞTI.**
+
+`pm_research/user_pnl.py` modulu olusturuldu, `enrich.py` candidates'a 1m_pnl ekleyip yeni cohort'lariyor.
+
+### 9.2 Yeni cohort dagilimi (86 aday)
+
+| cohort_v2 | n | ortalama 1m P&L | tanim |
+|---|---|---|---|
+| dormant | **33** | $0 | 1d ve 1m hareket yok — lb-api'nın gosterdigi sahte top |
+| consistent_winner | 9 | $848K | 1m > $100K, lifetime > $1M, 1m < lifetime/2 (yıllık trend) |
+| recent_surge_winner | 8 | $2.24M | 1m > $500K, lifetime'a kıyasla buyuk yuzde |
+| small_winner | 13 | $36K | 1m > $5K |
+| currently_winning | 5 | $148K | 1m > $100K (consistent kriter karsilamiyor) |
+| high_vol_break_even | 8 | $1.2K | volume > $100M, 1m P&L ≈ 0 (Tripping benzeri) |
+| actively_losing | 5 | -$293K | 1m < -$100K |
+| low_activity | 5 | -$5K | tanimsız |
+
+**38% dormant.** lb-api'nın bizi yanılttigi tam burada. Gercek aktif-karli kohort: 9 + 8 + 5 = **22 hesap**.
+
+### 9.3 Top-7 currently-winning fingerprint
+
+7 winner profillenip karsilastirildi:
+
+| name | 1m | trades/day | Buy% | mkt | med$ | same-sec% | onemli iz |
+|---|---|---|---|---|---|---|---|
+| **surfandturf** | $3.36M | 745 | 97% | 13 | $12.7 | 21% | Real Madrid Yes BUY x100, focused (13 mkt) |
+| swisstony | $2.00M | **3500** | 100% | **220** | $7 | 21% | Multi-event spread bets, diversified |
+| RN1 | $1.70M | **3500** | 100% | 72 | $8 | 41% | Tennis matches, single market burst |
+| **beachboy4** | $1.29M | 32 | 100% | 70 | $25 | 38% | Inter Miami Yes @ $0.48, **200K size orders** |
+| kch123 | $0.77M | 218 | 100% | 49 | $9 | 26% | NHL hockey Yes BUY (Avalanche etc.) |
+| tdrhrhhd | $0.73M | 59 | 79% | 20 | $0.72 | 15% | Long-shot SELL @ $0.01 (Fetterman) |
+| gfjoigfsjoigsjoi | $3.94M | 114 | 100% | 22 | $58.7 | 35% | FC Barcelona Yes huge orders |
+
+### 9.4 PATTERN: **Sports Favorite Burst-Buy** dominant strateji
+
+6/7 winner ayni yapı:
+1. **Spor marketinde favori takım sec** (Real Madrid, Inter Miami, Barcelona, Avalanche, vb.)
+2. **YES tarafinda BUY** ($0.48-0.78 fiyat aralıgı = positive EV bahis)
+3. **Burst execution:** tek pozisyonu 20-40% same-second clustering ile fragmente et (slippage kontrol, front-run kacirma)
+4. **Hold-to-resolution:** redemption ile cikis (BUY-only, sell yok)
+
+Tek istisna: tdrhrhhd long-shot SELL pattern (degisik, daha zor okunuyor).
+
+### 9.5 Replikasyon analizi
+
+**Edge kaynagi:** "Spor pazarlarinda favori takima tutarli underpricing" — bu istatistiksel bir bias (sports betting literaturunda "longshot bias" olarak biliniyor: pazarlar favorileri olçer-olcmez biraz alt-fiyatlar, longshot'lari ust-fiyatlar). Polymarket spor markette muhtemelen **favori takıma yapısal underpricing** var.
+
+**Replike etmek icin ne lazim:**
+1. **Spor market scanner** — gamma-api kategori filtresi (`category=sports`) ile gerceklesen tum aktif spor maclarini cek
+2. **Favori detection** — P(YES) > 0.55 esik OR ucu vurgulayan ek kriter (bookmaker odds vs Polymarket fiyat farki)
+3. **Mispricing filter** — basit baseline: P(YES) < (1 - bookmaker_implied_prob) yani Polymarket bookmaker'dan ucuza satıyor
+4. **Burst execution layer** — verilen target_size'i N kucuk fill'e bol (5-30 fill, 0.1-1 sn arasi)
+5. **Hold to resolution** — redemption otomasyonu
+
+Sermaye gereksinimi: $5K-$50K kanarya (per-pozisyon $50-$500), Sprint 04+'da $50K-$500K full deploy.
+
+**Backtest plan:** Resolved spor market geçmisini (gamma-api / closed_markets) çek. Her marketin BUY-the-favorite-at-listed-price simulation. **Average return ratio** hesaplanir.
+
+### 9.6 GUNCELLENMIS Sprint 02 onerisi (NIHAI)
+
+**Yon: Sports Favorite Strategy** (yukaridaki Yon I'in spesifik instantiation'i, somut ornek 6 hesapta gozlemlendi)
+
+Sprint 02 hedef:
+1. **gamma-api/markets** ile aktif spor marketleri listele + closed_markets ile resolve geçmisi
+2. **Backtest engine:** her resolved spor maca BUY-favorite (P > 0.55) at-listed-price + size policy + holding-to-resolution → return-on-capital simulation
+3. **Eger backtest > 5%/ay net (gas dahil) → Sprint 03'te ExecutionClient + live kanarya
+4. Eger negatif → fallback Yon II (theory-first MM)
+
+Sprint 02 sure tahmini: **3-5 gun**. Kullanici Sprint 02 prompt'unu acmaya hazir oldugunda baslarim.
+
+### 9.7 Notlar / dikkat edilmesi gerekenler
+
+- **gfjoigfsjoigsjoi $3.94M ama 1d/1w'da 0** → tek-event surge (FC Barcelona resolution'i geçen hafta), pattern olarak surfandturf'tan farkli — replikasyon icin daha az ornekleyici
+- **surfandturf en saglikli signal**: positive 1d, 1w, 1m hepsinde — gerçek surekli kazanan
+- **bossoskil1 ve 492442EaB recent_surge** olduklari icin atladık ama fingerprint icin de ilginc — Sprint 03 prelaunch'inde isteyen detayli inceleyebilir
+- **lb-api hala aday discovery icin kullanilabilir**, ama enrichment adimi (user-pnl-api ile 1m kontrol) **kacinilmaz** dormant'lari elemek icin
+- **`user-pnl-api`'nın rate-limit'i bilinmiyor** — şu an %50 conservative tahminle 5 r/s set ettik (`pm_research/http.py`)
+

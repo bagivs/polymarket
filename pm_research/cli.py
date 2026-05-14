@@ -12,7 +12,7 @@ from pathlib import Path
 
 import polars as pl
 
-from . import discover, metrics, profile, validate as validate_mod
+from . import discover, enrich as enrich_mod, metrics, profile, validate as validate_mod
 
 DEFAULT_LB_DIR = Path("data/leaderboard")
 DEFAULT_TRADERS_DIR = Path("data/traders")
@@ -88,6 +88,16 @@ def main(argv: list[str] | None = None) -> int:
     pp.add_argument("--lb-dir", type=Path, default=DEFAULT_LB_DIR)
     pp.add_argument("--out", type=Path, default=DEFAULT_TRADERS_DIR)
 
+    ee = sub.add_parser(
+        "enrich",
+        help="Enrich latest candidates with true period PnL (user-pnl-api) and re-cohort",
+    )
+    ee.add_argument("--candidates", type=Path,
+                    help="Candidates parquet (default: latest under data/leaderboard)")
+    ee.add_argument("--lb-dir", type=Path, default=DEFAULT_LB_DIR)
+    ee.add_argument("--out", type=Path,
+                    help="Output parquet path (default: <date>_candidates_v2.parquet next to input)")
+
     vv = sub.add_parser(
         "validate",
         help="Reconcile lb-api per-period P&L against trade + redemption cashflow.",
@@ -134,6 +144,12 @@ def main(argv: list[str] | None = None) -> int:
             "fingerprints_path": str(agg_path),
             "cohort_summary": metrics.cohort_summary(fps),
         }
+        print(json.dumps(summary, indent=2, default=str))
+        return 0
+
+    if args.cmd == "enrich":
+        cands = args.candidates or _latest_candidates(args.lb_dir)
+        summary = asyncio.run(enrich_mod.enrich(cands, out_path=args.out))
         print(json.dumps(summary, indent=2, default=str))
         return 0
 
