@@ -1,7 +1,7 @@
-# Sprint 01 — Trader Discovery & Analysis — Sonuc (review-ready)
+# Sprint 01 — Trader Discovery & Analysis — Sonuc (🟢 Tamamlandi)
 
-> Sprint **kapanis aday** — tum kabul kriterleri karsilandi. Final karar `findings.md`'deki Sprint 02 secimi onayi.
-> Detayli bulgular ve oneri: [`findings.md`](findings.md).
+> Sprint **kapanis** — kullanici 2026-05-15'te Sports Favorite Strategy onayi verdi, Sprint 02 acildi.
+> Final bulgular: [`findings.md`](findings.md). Validation arc: §8 (lb-api period broken) → §9 (user-pnl-api kesfi, sports-favorite pattern dogrulandi).
 
 ## Yapilanlar
 

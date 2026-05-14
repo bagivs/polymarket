@@ -167,11 +167,11 @@ Cevap geldikce ust bolumlere tasi:
 | Sprint | Hedef | Cikti |
 |---|---|---|
 | 00 | Bootstrap + ilk brainstorm | 🟢 docs/ iskelet, ADR-001..005, sprint dongusu kuruldu |
-| 01 | **Trader Discovery & Analysis** | Karli hesaplari bul, trade verilerini topla, strateji parmak izi cikar |
-| 02 | Replikasyon hedef stratejisi secimi | Sprint 01 bulgularindan en uygun strateji secilir, formalize edilir |
-| 03 | Polymarket API kesfi + ExecutionClient iskeleti | Rate-limit, auth, fee yapisi; testnet/kanarya cuzdani ile place/cancel |
+| 01 | Trader Discovery & Analysis | 🟢 86 aday → user-pnl-api enrich → 22 currently-winning. Top-7 fingerprint: 6/7 **sports-favorite burst-buy** pattern |
+| 02 | **Sports Favorite Strategy backtest** | Resolved spor pazarlarinda BUY-favorite + hold simulasyonu; Sprint 03 GO/NO-GO bu sprintten |
+| 03 | ExecutionClient + canli kanarya **(Sprint 02 + ise)** | py-clob-client wrapper, place/cancel, kucuk sermaye live test. Sprint 02 - olursa Yon II MM fallback. |
 | 04 | MarketDataFeed | WS bagli, in-mem order book, replay kayit |
-| 05 | StrategyEngine + RiskGuard | Sprint 02'de secilen strateji + simulator |
-| 06 | Live kanarya | Kucuk sermaye + monitoring |
+| 05 | StrategyEngine + RiskGuard | Sprint 02'de validate edilen strateji + simulator |
+| 06 | Olcek + monitoring | Production-ready, dashboard, alarm |
 
 > Bu plan **iskelet**. Her sprint sonunda gozden gecir. Sprint 02+ Sprint 01 bulgularina gore yeniden sirayalanabilir.

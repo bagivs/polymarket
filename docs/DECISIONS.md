@@ -74,3 +74,15 @@
 **Ne.** Kod katmani: `httpx.AsyncClient` (HTTP 1.1; HTTP/2 simdilik yok — `h2` dep'i gereksiz). `aiolimiter.AsyncLimiter` per-host (rate Cloudflare bucketinin %50'si — ayrintilar `pm_research/http.py`). `tenacity` retry: 5 try, exponential backoff 1–30s, sadece 429 + 5xx + transport hatalari. Persistance: Polars 1.40+ DataFrame, Parquet (pyarrow backend) `data/...` altinda gunluk dosyalar.
 
 **Alternatifler.** `aiohttp` (httpx daha modern, sync+async tek API), `requests + threading` (eski paradigma), Pandas (Polars 5–10x daha hizli, daha az hafiza), CSV (5x buyuk, tipsiz), DuckDB (Polars yeterli simdilik).
+
+---
+
+## ADR-007 — Sprint 02 hedef stratejisi: Sports Favorite Burst-Buy
+**Tarih:** 2026-05-15
+**Durum:** Kabul (backtest sonucuna bagli; backtest negatifse fallback ADR-008 olarak gelir)
+
+**Neden.** Sprint 01 §9'da 86 aday → user-pnl-api ile enrichment sonrasi 22 currently-winning trader fingerprintlendi. Top 7'nin 6'si **ayni patterni** sergiledi: spor pazarinda favori takima YES BUY @ $0.48-0.78, burst-execution (20-40% same-second), hold-to-resolution. Bu somut, replike edilebilir ve istatistiksel olarak iyi calisilmis ("favorite/longshot bias", Snowberg & Wolfers 2010) bir pattern.
+
+**Ne.** Sprint 02 = bu pattern'in **resolved spor pazarlari uzerinde backtest**. Variations: P(YES) esigi, spor kategori, position size policy, entry timing, slippage modellemesi. Karar: net return > 5%/ay (fee + gas dahil) → Sprint 03 live kanarya. Negatifse Yon II (klasik MM) fallback. Hedef strateji bu sprintte **veriyle dogrulanir** veya elenir; teori-only commitment yok.
+
+**Alternatifler.** Klasik Avellaneda-Stoikov MM (Sprint 01 sample'inda boyle MM gozlemlenemedi — top-volume churners 0 marjin), long-shot SELL (tdrhrhhd pattern — tek trader, daha az ornekleyici), info-edge directional event-buy (replike edilemez), pas+devam (Yon III, momentum kaybi). Sports favorite somut + canliyla onaylanmis + replikable.

@@ -8,8 +8,9 @@
 | # | Klasor | Durum | Ozet |
 |---|---|---|---|
 | 00 | [sprint-00-bootstrap](sprint-00-bootstrap/) | 🟢 Tamamlandi | Proje iskeleti, ilk ADR'lar, sprint dongusu |
-| 01 | [sprint-01-trader-discovery](sprint-01-trader-discovery/) | 🟡 Review | Discovery + 10 hesap fingerprint, [`findings.md`](sprint-01-trader-discovery/findings.md) Sprint 02 onayi bekliyor |
-| 02 | _planlanmadi_ | ⚪ | Sprint 01 onerisi: long-shot scalper (Opsiyon A); kullanici karari sonra |
+| 01 | [sprint-01-trader-discovery](sprint-01-trader-discovery/) | 🟢 Tamamlandi | Discovery + 17 hesap fingerprint + user-pnl-api kesfi; [`findings.md §9`](sprint-01-trader-discovery/findings.md): sports-favorite pattern dominant |
+| 02 | [sprint-02-sports-favorite-backtest](sprint-02-sports-favorite-backtest/) | 🟡 Aktif | "BUY favori + hold to resolution" stratejisinin Polymarket spor pazarlarinda backtest'i; Sprint 03 GO/NO-GO bu sprintten cikar |
+| 03 | _planlanmadi_ | ⚪ | Sprint 02 sonucu pozitifse: ExecutionClient + canli kanarya. Negatifse Yon II (klasik MM). |
 | 03 | _planlanmadi_ | ⚪ | Polymarket API kesfi + ExecutionClient iskeleti |
 
 **Durum simgeleri:** ⚪ planlanmadi · 🟡 aktif · 🟢 tamamlandi · 🔴 iptal
