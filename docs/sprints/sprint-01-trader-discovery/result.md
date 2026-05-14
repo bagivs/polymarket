@@ -1,6 +1,7 @@
-# Sprint 01 — Trader Discovery & Analysis — Sonuc (in-progress)
+# Sprint 01 — Trader Discovery & Analysis — Sonuc (review-ready)
 
-> Sprint **aktif** — discovery layer + ilk pool hazir. Per-trader fingerprinting siradaki adim.
+> Sprint **kapanis aday** — tum kabul kriterleri karsilandi. Final karar `findings.md`'deki Sprint 02 secimi onayi.
+> Detayli bulgular ve oneri: [`findings.md`](findings.md).
 
 ## Yapilanlar
 
@@ -52,7 +53,17 @@
 - §3.3 (sektor referans bulgulari) eklendi — bossoskil1 anekdotu dahil.
 - §3.1/3.2 reverse-engineer-first cercevesine uydu.
 
-## Sonraki adim — kullanici onay/girdi bekleniyor
-1. **Hangi cohort'tan deep-dive baslayalim?** Onerim: ilk **5 MM aday'i** — clean fingerprint icin en uygun (yuksek frekans, aciktan-kapamaya kalip). Recent_oneshot'lar tek-trade lottery olabilir, replikasyon zor.
-2. **"Sustained" tespiti icin** ya gunluk snapshot otomasyonu kuralim (cron ile haftalarca toplama) ya da MM aday'lari icin per-trader closed-positions zaman serisi cekelim. Gunluk snapshot daha bedava ama yavas; closed-positions hizli ama tek-trader scope'lu.
-3. Sprint 01'in son ciktisi `findings.md` — **deep-dive tamamlanmadan yazilmiyor**. Onaylar gelir gelmez ucu de paralel ilerleyebilir.
+## Per-trader deep-dive (5 MM + 5 oneshot, top by ranking metric)
+- `pm_research/profile.py` — async per-trader bulk fetch (trades + closed + open + value).
+- `pm_research/metrics.py` — fingerprint hesaplari (trade rate, side balance, market diversity, inter-arrival, paired-event clustering, realized PnL — caveat'larla).
+- 10 hesabin per-trader Parquet'leri + fingerprint.json + cohort agregasyonu disk'te (`data/traders/`).
+- Smoke testler (6/6 PASS): import, fingerprint logic, cohort summary, mocked HTTP wrappers.
+
+## Onemli teknik bulgular (Sprint 02+ icin onemli)
+- `closed_positions` API'si **yalnizca top-50 winning** pozisyon donduruyor — win-rate/cumulative-PnL trade-history'den hesaplanmali. Bossoskil1 sanity check ile dogrulandi.
+- `data-api/trades` offset 3000'de hard cap → lifetime trade history erisilemez, 3500 satir sample yeterli archetype tespiti icin.
+- Fingerprint'in en ayirt edici sinyalleri: `buy_ratio` (OS=1.0 vs MM=0.61) ve `same_second_trade_pct` (OS=36% vs MM=8.8%).
+
+## Sonraki adim — KULLANICI ONAYI BEKLENIYOR
+- `findings.md` Sprint 02 icin **3 opsiyon**, **Opsiyon A (long-shot scalper)** onerisi sundu.
+- Kullanici onay verirse Sprint 02 acilir; reddederse opsiyonlar tartisilir.

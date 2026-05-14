@@ -8,8 +8,8 @@
 | # | Klasor | Durum | Ozet |
 |---|---|---|---|
 | 00 | [sprint-00-bootstrap](sprint-00-bootstrap/) | 🟢 Tamamlandi | Proje iskeleti, ilk ADR'lar, sprint dongusu |
-| 01 | [sprint-01-trader-discovery](sprint-01-trader-discovery/) | 🟡 Aktif | Karli hesaplari bul, trade verilerini topla, strateji fingerprint cikar |
-| 02 | _planlanmadi_ | ⚪ | Hedef strateji secimi (Sprint 01 bulgularindan) |
+| 01 | [sprint-01-trader-discovery](sprint-01-trader-discovery/) | 🟡 Review | Discovery + 10 hesap fingerprint, [`findings.md`](sprint-01-trader-discovery/findings.md) Sprint 02 onayi bekliyor |
+| 02 | _planlanmadi_ | ⚪ | Sprint 01 onerisi: long-shot scalper (Opsiyon A); kullanici karari sonra |
 | 03 | _planlanmadi_ | ⚪ | Polymarket API kesfi + ExecutionClient iskeleti |
 
 **Durum simgeleri:** ⚪ planlanmadi · 🟡 aktif · 🟢 tamamlandi · 🔴 iptal
