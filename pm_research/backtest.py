@@ -70,19 +70,15 @@ def simulate_one(
     history: list[dict],
     cfg: Config,
 ) -> TradeResult:
-    end_dt = datetime.fromisoformat(market["end_date_iso"].replace("Z", "+00:00"))
-    end_ts = int(end_dt.timestamp())
-    entry_ts = end_ts - cfg.entry_hours_before_close * 3600
-
-    yes_resolved = float(market["outcome_prices_final"][0])
-
+    end_iso = market.get("end_date_iso")
+    outcome_prices = market.get("outcome_prices_final") or []
     base = TradeResult(
-        market_id=str(market["market_id"]),
-        condition_id=str(market["condition_id"]),
-        question=market["question"],
+        market_id=str(market.get("market_id") or ""),
+        condition_id=str(market.get("condition_id") or ""),
+        question=market.get("question") or "",
         event_title=market.get("event_title"),
-        end_date_iso=market["end_date_iso"],
-        yes_resolved=yes_resolved,
+        end_date_iso=end_iso or "",
+        yes_resolved=float(outcome_prices[0]) if outcome_prices else 0.0,
         yes_entry_price=None,
         favorite_side=None,
         favorite_entry_price=None,
@@ -91,6 +87,17 @@ def simulate_one(
         pnl_usd=0.0,
         roi=0.0,
     )
+    if not end_iso:
+        base.excluded_reason = "no_end_date"
+        return base
+    if not outcome_prices or len(outcome_prices) < 2:
+        base.excluded_reason = "no_resolution"
+        return base
+
+    end_dt = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
+    end_ts = int(end_dt.timestamp())
+    entry_ts = end_ts - cfg.entry_hours_before_close * 3600
+    yes_resolved = base.yes_resolved
 
     if not history:
         base.excluded_reason = "no_price_history"
@@ -158,28 +165,68 @@ async def fetch_all_histories(
     *,
     fidelity_min: int = 60,
     min_volume: float = 10_000.0,
-    progress_every: int = 200,
+    progress_every: int = 500,
+    concurrency: int = 20,
 ) -> dict[str, list[dict]]:
-    """Pull prices_history once per market; cache by yes_token_id."""
+    """Pull prices_history once per market; cache by yes_token_id.
+
+    Concurrent in-flight requests are bounded by `concurrency`; the per-host
+    AsyncLimiter in pm_research.http throttles total throughput to whatever
+    rate the limiter allows.
+    """
     df = markets_df.filter(pl.col("volume_usd") >= min_volume)
-    log.info("fetch_all_histories: %d markets to fetch", df.height)
+    log.info("fetch_all_histories: %d markets to fetch (concurrency=%d)", df.height, concurrency)
     out: dict[str, list[dict]] = {}
+    seen_tokens: set[str] = set()
+    targets: list[dict] = []
+    for m in df.to_dicts():
+        tid = m.get("yes_token_id")
+        if not tid or tid in seen_tokens:
+            continue
+        seen_tokens.add(tid)
+        targets.append(m)
+
+    sem = asyncio.Semaphore(concurrency)
+    completed = 0
+    total = len(targets)
+    lock = asyncio.Lock()
+
     async with http.session(timeout=30) as client:
-        rows = df.to_dicts()
-        for i, m in enumerate(rows, start=1):
-            tid = m.get("yes_token_id")
-            if not tid or tid in out:
-                continue
-            try:
-                out[tid] = await prices.prices_history(
-                    client, tid, interval="max", fidelity_min=fidelity_min
-                )
-            except Exception as exc:
-                log.warning("price fetch failed for %s: %s", tid, exc)
-                out[tid] = []
-            if i % progress_every == 0:
-                log.info("  ... %d/%d", i, len(rows))
+        async def _one(m: dict) -> None:
+            nonlocal completed
+            tid = m["yes_token_id"]
+            async with sem:
+                try:
+                    out[tid] = await prices.prices_history(
+                        client, tid, interval="max", fidelity_min=fidelity_min
+                    )
+                except Exception as exc:
+                    log.warning("price fetch failed for %s: %s", tid, exc)
+                    out[tid] = []
+            async with lock:
+                completed += 1
+                if completed % progress_every == 0 or completed == total:
+                    log.info("  ... %d/%d", completed, total)
+
+        await asyncio.gather(*(_one(m) for m in targets))
     return out
+
+
+_RESULT_SCHEMA = {
+    "market_id": pl.Utf8,
+    "condition_id": pl.Utf8,
+    "question": pl.Utf8,
+    "event_title": pl.Utf8,
+    "end_date_iso": pl.Utf8,
+    "yes_resolved": pl.Float64,
+    "yes_entry_price": pl.Float64,
+    "favorite_side": pl.Utf8,
+    "favorite_entry_price": pl.Float64,
+    "favorite_won": pl.Boolean,
+    "excluded_reason": pl.Utf8,
+    "pnl_usd": pl.Float64,
+    "roi": pl.Float64,
+}
 
 
 def simulate_grid(
@@ -194,7 +241,7 @@ def simulate_grid(
         for m in df.to_dicts()
         if m.get("yes_token_id")
     ]
-    return pl.DataFrame([asdict(r) for r in results])
+    return pl.DataFrame([asdict(r) for r in results], schema=_RESULT_SCHEMA)
 
 
 async def run_backtest(
