@@ -12,10 +12,11 @@ from pathlib import Path
 
 import polars as pl
 
-from . import discover, metrics, profile
+from . import discover, metrics, profile, validate as validate_mod
 
 DEFAULT_LB_DIR = Path("data/leaderboard")
 DEFAULT_TRADERS_DIR = Path("data/traders")
+DEFAULT_VALIDATE_DIR = Path("data/validation")
 
 
 def _latest_candidates(lb_dir: Path) -> Path:
@@ -87,6 +88,20 @@ def main(argv: list[str] | None = None) -> int:
     pp.add_argument("--lb-dir", type=Path, default=DEFAULT_LB_DIR)
     pp.add_argument("--out", type=Path, default=DEFAULT_TRADERS_DIR)
 
+    vv = sub.add_parser(
+        "validate",
+        help="Reconcile lb-api per-period P&L against trade + redemption cashflow.",
+    )
+    vv.add_argument("--addresses", nargs="*")
+    vv.add_argument("--cohort", type=str)
+    vv.add_argument("--top", type=int, default=10)
+    vv.add_argument("--candidates", type=Path)
+    vv.add_argument("--lb-dir", type=Path, default=DEFAULT_LB_DIR)
+    vv.add_argument("--traders-dir", type=Path, default=DEFAULT_TRADERS_DIR,
+                    help="Reuse trades.parquet from this dir if present")
+    vv.add_argument("--out", type=Path, default=DEFAULT_VALIDATE_DIR)
+    vv.add_argument("--max-pages", type=int, default=7)
+
     args = p.parse_args(argv)
     logging.basicConfig(
         level=args.log_level,
@@ -106,7 +121,6 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         print(f"# profiling {len(addresses)} addresses from {cands_path.name}", file=sys.stderr)
         fps = asyncio.run(_run_profile(addresses, args.out, args.max_pages))
-        # Save aggregated fingerprints + cohort summary
         today = date.today().isoformat()
         tag = (args.cohort or "explicit").replace("/", "_")
         agg_path = args.out / f"_fingerprints_{today}_{tag}.parquet"
@@ -119,6 +133,36 @@ def main(argv: list[str] | None = None) -> int:
             "addresses": addresses,
             "fingerprints_path": str(agg_path),
             "cohort_summary": metrics.cohort_summary(fps),
+        }
+        print(json.dumps(summary, indent=2, default=str))
+        return 0
+
+    if args.cmd == "validate":
+        if args.addresses:
+            addresses = [a.lower() for a in args.addresses]
+        else:
+            cands_path = args.candidates or _latest_candidates(args.lb_dir)
+            addresses, _ = _pick_addresses(cands_path, args.cohort, None, args.top)
+        if not addresses:
+            print(json.dumps({"error": "no addresses"}, indent=2))
+            return 2
+        print(f"# validating {len(addresses)} addresses", file=sys.stderr)
+        rows = asyncio.run(
+            validate_mod.validate_addresses(
+                addresses,
+                traders_dir=args.traders_dir,
+                max_pages=args.max_pages,
+            )
+        )
+        args.out.mkdir(parents=True, exist_ok=True)
+        today = date.today().isoformat()
+        out_path = args.out / f"{today}_validation.parquet"
+        if rows:
+            pl.DataFrame(rows).write_parquet(out_path)
+        summary = {
+            "addresses": addresses,
+            "rows": len(rows),
+            "out": str(out_path),
         }
         print(json.dumps(summary, indent=2, default=str))
         return 0

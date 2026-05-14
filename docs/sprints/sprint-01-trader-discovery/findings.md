@@ -5,6 +5,8 @@
 
 > Bu rapor Sprint 01'in **karar dokumani** — Sprint 02 hedef stratejisi buradaki bulgulardan secilecek.
 
+> ⚠️ **2026-05-14 ayni gun POST-VALIDATION CORRECTION:** Bolum 1-7'deki bircok cikarim **kismi olarak yaniltici cikti** — `lb-api`'nin `period` parametresi backend'de **tamamen yok-sayiliyor** (her cagri lifetime donuyor). Eski cikarimlar **arsiv**, GERÇERLI bulgular **§8**'de. Once §8'i oku.
+
 ---
 
 ## 1. TLDR — yedi madde
@@ -147,3 +149,89 @@ Sebep: (1) Kullanici "kazanan botlardan ogrenelim" istedi — Tripping somut orn
 - **Lifetime trade history** icin alternatif: The Graph subgraph (`polymarket-matic`) muhtemelen on-chain her trade'i tutar. Sprint 02-03'te degerlendirilecek.
 - **Multi-day snapshot serisi** ile sustained-winner tespiti — Sprint 02 paralelinde gunluk cron olarak basitce eklenebilir (~5 dk).
 - **YES+NO arb traderlarini bulma** — top-volume listede yoklar. /holders endpoint ile per-market top holders tarayip kucuk-dengeli pozisyon sahiplerini bulabiliriz. Sprint 02 opsiyonel ek.
+
+---
+
+## 8. POST-VALIDATION CORRECTION (2026-05-14, ayni gun)
+
+> Bolum 1-7'deki bulgular `lb-api/profit?period=...` ve `lb-api/volume?period=...` cagrilarinin per-period filtre yaptigi varsayimina dayaniyordu. Validation `pm_research/validate.py` ile bu varsayim **direkt probe ile cürütüldü**. Asagidaki §8 GUNCELLENMIS ve gercek olan tek bulgudur.
+
+### 8.1 Yapisal API bug'i — `lb-api` period yok-sayiyor
+
+Probe (sirayla day/week/month/year/all):
+```
+Theo4 profit:  $22.05M, $22.05M, $22.05M, $22.05M, $22.05M  (hepsi LIFETIME)
+swisstony vol: $765.7M, $765.7M, $765.7M, $765.7M, $765.7M  (hepsi LIFETIME)
+bossoskil1 profit: -$2.39M (her period icin) (hepsi LIFETIME)
+```
+
+Top-3 listesi de tum periodlarda IDENTICAL → **lb-api gercekte sadece lifetime tutuyor**, period frontend'de cosmetic.
+
+**Sonuc:** "sustained_winner / recent_oneshot_winner" cohort logic'i (`profit_year vs profit_week`) **bos** — iki sayi her zaman ayni.
+
+### 8.2 Reconciled gercek tablo (10 trader + bossoskil1 control)
+
+Trade-cashflow (BUY-SELL+REDEEM, son N gun) ile lb-api lifetime karsilastirmasi:
+
+| Trader | Lifetime profit | Lifetime volume | week net cf | week vol | yr net cf | yr vol | YORUM |
+|---|---|---|---|---|---|---|---|
+| Theo4 | +$22.05M | $43M | **$0** | **$0** | **$0** | **$0** | **DORMANT 1.5 yıl** |
+| Fredi9999 | +$16.62M | $76M | $0 | $0 | $0 | $0 | **DORMANT 1.5 yıl** |
+| Len9311238 | +$8.71M | $16M | $0 | $0 | $0 | $0 | **DORMANT 1.5 yıl** |
+| kch123 | +$12.61M | $290M | +$446K | $825K | +$146M | $2M | Aktif: %99 cashflow REDEEM (eski poz cıkarıyor) |
+| RN1 | +$8.96M | $547M | +$10.4M | $391K | +$15.7M | $391K | Aktif: %95 cashflow REDEEM |
+| cigarettes | +$1.03M | $499M | +$547K | $345K | +$1.8M | $345K | Aktif: cogu REDEEM |
+| risk-manager | +$322K | $654M | +$8K | $29K | +$273K | $29K | Cok dusuk recent activity |
+| 9c667a1 | +$112K | $456M | +$413 | $3K | +$2.2K | $3K | **Sönmüş aktivite** |
+| tripping | **+$96K** | **$675M** | **-$108** | $2.8K | +$23K | $2.8K | Lifetime margin **0.014 bps** — pratik olarak break-even |
+| 492442EaB | -$1.58M | $492M | +$761K | $1.8M | +$201M | $44M | Lifetime KAYIPTA, redemptionla cashflow + |
+| bossoskil1 (control) | -$2.39M | $203M | +$8.8M | $2.6M | +$62.2M | $2.6M | Lifetime KAYIPTA, redemption $64M ama hala net buyuyor (BUY > SELL+REDEEM kullanım disi degerle) |
+
+### 8.3 Bolum 1-7'nin INVALIDE olan cikarimlari
+
+| Eski cikarim | Gercek |
+|---|---|
+| "Theo4, Fredi9999 = recent oneshot winners" | DORMANT 1.5 yil — eski event winnerlari, hesaplari atil |
+| "Tripping = replicable long-shot scalper" | $675M volume / $96K lifetime profit = **0 marjin**, replikasyon hedefi degil |
+| "Sustained_winner cohort logic" | profit_year=profit_week always → cohort logic kor |
+| "100% buy_ratio = info-edge directional" | Yarisi BU, yarisi sadece dormant. Kontrol icin recent activity kesin |
+| "MM cohort = market makers" | %60'i sadece "cok yapan ama net 0 marjin", %20 dormant-ish, %20 redemption collector |
+
+### 8.4 Yeni gercek cikarimlar
+
+1. **lb-api leaderboard'lari direkt actionable degil** — lifetime gosteriyor; bircok top hesap yıl(lar)ca atil.
+2. **Currently-profitable bot bulmak farkli yontemle olur:** ya recent global /trades scan ile aktif adresler topla, ya /holders endpoint ile aktif marketlerin top holderlarini topla, ya da gunluk snapshot serisi (delta-based actively-trading filter).
+3. **Trading P&L gercek hesabi icin trade-cap (3000 offset) sorun:** Aktif HF trader'lar icin son 1-7 gunun otesini goremiyoruz. Bu structural — workaround: weekly snapshot biriktirip "rolling window" olustur.
+4. **Hicbir trader bizim sample'da "currently winning at scale" olarak isaretlenemedi.** En iyi hareket eden tripping bile ~0 marjin. Sprint 02 stratejisini "var olan bir botu kopyala" olarak kuramayiz; ya yeni discovery, ya teori-based strateji secimi.
+5. **Sektor reportu'nun "%7.6 wallet karli" iddiasi** muhtemelen lifetime ile - aktif winner orani daha az olabilir.
+
+### 8.5 GUNCELLENMIS Sprint 02 onerileri (3 yon)
+
+#### Yon I — Yeni discovery (recommended, veri-once prensiple uyumlu)
+**Ne:** "Currently-profitable, currently-active" hesaplari tespit eden bir kesif modulu yaz. Yontem:
+- Polymarket'in **aktif marketlerini** bul (gamma-api/markets, status=active)
+- Her market icin /holders top 30
+- Bu havuzdan adresleri unique al → ~500-2000 currently-positioned adres
+- Her biri icin son 7-14 gunluk net cashflow + redemption hesapla
+- Pozitif son-hafta cashflow + min N trade aktivitesi → "currently-winning" cohort
+**Maliyet:** 1-2 saat ek kod + ~10 dk batch run
+**Sonra:** O cohort'u replikasyon adayi olarak Sprint 02'ye al
+**Risk:** Belki gene bulamayız — o zaman teori-based yaklasim kacinilmaz olur, ama en az kanıtlanmıs olur
+
+#### Yon II — Teori-based pivot (geleneksel)
+**Ne:** Reverse-engineer'dan vazgec. Klasik MM (Avellaneda-Stoikov) veya YES+NO arb stratejisini direk implement et, simulator'da kalibre et, kanarya ile test et.
+**Avantaj:** Kanıtlanmıs akademik baz, bekleme yok
+**Risk:** Polymarket spesifik (likidite, fee, gas) farkliliklarini biz cikartmamiz gerek; "neden bu bot yok zaten" sorusu cevapsiz
+
+#### Yon III — Pas, Sprint 01'i biraz daha besle
+**Ne:** Yon I + multi-day snapshot serisi (1-2 hafta gunluk lb-api + activity scan, tarihsel rolling pencere) — sustained-winner tespiti icin gercek temel
+**Avantaj:** En kuvvetli veri tabanı
+**Dezavantaj:** Sprint 01 1-2 hafta daha uzar; momentum kaybi
+
+### 8.6 Onerim
+**Yon I**. Mantik:
+- Veri-once prensibi (kullanici acikca istedi)
+- Sprint 01 zaten "discovery" sprintı; "yanlis sorudan yanit aldik, dogru soruyu sor" makul
+- 1-2 saat is + run; sonuc kotuyse Yon II'ye revert kolay
+- Ayrica yan urun: `pm_research/discover.py`'in /holders + recent-trades varyantı genel-amaclı, sonraki sprintlerde de lazim
+
