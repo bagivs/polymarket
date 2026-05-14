@@ -67,6 +67,12 @@ Polymarket *gercek* HFT degil (mikrosaniye degil). Bizim icin "HFT" = saniye-alt
 ### 3.2 Hedef strateji secimi
 Sprint 01 ciktisindan **3.1**'deki kategorilerin her birine "var/yok, hangi hesaplarda, ne agirlikta" haritasi cikar. Sprint 02'de en uygun (replike edilebilirlik + getiri + risk) strateji secilir.
 
+### 3.3 Sektor referans bulgulari (2026)
+- Polymarket cuzdanlarinin sadece **~%7.6**'si karli; top %1 karlarin **%75**'ini aliyor. Asimetri yuksek. (FA Magazine 2026 raporu)
+- 4 yasayan bot strateji: (1) Pasif MM ($10K + ~0.5–2%/ay), (2) AI prob. arb (3–8%/ay, %65–75 win), (3) Korelasyon/logical arb (2–5%/ay, %70–80 win), (4) HFT momentum (8–15%/ay, %60–70 win, MaxDD ~%9). (Medium 2026 yazisi)
+- Arbitraj firsatlari ortalama **2.7 sn**'de yutulup gidiyor (2024'te 12.3 sn'di). Sub-100ms execution **profit'lerin %73**'unu aliyor.
+- **Leaderboardlar yaniltici**: polymarket.com'da #1 olan `bossoskil1` bu ay **-$2.23M zararda**. Sustained profit icin **multi-period kesisim** (week + month + year ust ust) sart.
+
 ---
 
 ## 4. Mimari (taslak)
