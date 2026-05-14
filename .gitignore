@@ -1,0 +1,36 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Secrets / env
+.env
+.env.*
+!.env.example
+secrets/
+
+# Local data / logs
+data/
+logs/
+*.log
+*.sqlite
+*.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Claude Code local-only (project shared config goes in .claude/settings.json)
+.claude/settings.local.json
+.claude/cache/
+.claude/sessions/
+
+# OS
+.DS_Store
