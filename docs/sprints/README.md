@@ -9,8 +9,9 @@
 |---|---|---|---|
 | 00 | [sprint-00-bootstrap](sprint-00-bootstrap/) | 🟢 Tamamlandi | Proje iskeleti, ilk ADR'lar, sprint dongusu |
 | 01 | [sprint-01-trader-discovery](sprint-01-trader-discovery/) | 🟢 Tamamlandi | Discovery + 17 hesap fingerprint + user-pnl-api kesfi; [`findings.md §9`](sprint-01-trader-discovery/findings.md): sports-favorite pattern dominant |
-| 02 | [sprint-02-sports-favorite-backtest](sprint-02-sports-favorite-backtest/) | 🟡 Aktif | "BUY favori + hold to resolution" stratejisinin Polymarket spor pazarlarinda backtest'i; Sprint 03 GO/NO-GO bu sprintten cikar |
-| 03 | _planlanmadi_ | ⚪ | Sprint 02 sonucu pozitifse: ExecutionClient + canli kanarya. Negatifse Yon II (klasik MM). |
+| 02 | [sprint-02-sports-favorite-backtest](sprint-02-sports-favorite-backtest/) | ⏸️ Paused | Genel-amacli backtest engine yazildi (8K market, 28 config). YANLIS hipotez ("favorite buy") test edildi; UNDERDOG alternatif uretildi ama bu **yuzeysel fingerprintten strateji icadi** olduğu icin **methodologi hatasi** sayildi. Findings reference olarak kalir, strateji secimi DEGIL. |
+| 02b | [sprint-02b-winner-trade-deep-dive](sprint-02b-winner-trade-deep-dive/) | 🟡 Aktif | 7 currently-winning hesabin **trade-level** analizi: per-trade favorite/underdog sınıflandırma, market selection edge, timing patterns. Gercek pattern **veriden** cikartilir. |
+| 03 | _planlanmadi_ | ⚪ | Sprint 02b sonucundan strateji + ExecutionClient + canli kanarya |
 | 03 | _planlanmadi_ | ⚪ | Polymarket API kesfi + ExecutionClient iskeleti |
 
 **Durum simgeleri:** ⚪ planlanmadi · 🟡 aktif · 🟢 tamamlandi · 🔴 iptal
