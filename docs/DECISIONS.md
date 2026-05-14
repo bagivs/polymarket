@@ -62,3 +62,15 @@
 **Ne.** Tum bot tek bir Linux makinede calisir; lokasyon optimizasyonu, multi-region failover **kapsam disi**. Git/GitHub islemleri: commit, branch, push, PR, issue, release **Claude tarafindan** yapilir. Destructive operasyonlar (force push, branch silme, vb.) icin kullanici onayi alinir. Repo: `github.com/bagivs/polymarket`.
 
 **Alternatifler.** Cok-makine (gereksiz karmasiklik), elle git (yavas iteration). Mevcut secim solo proje icin optimal.
+
+---
+
+## ADR-006 — HTTP istemcisi: httpx + aiolimiter + tenacity, Polars + Parquet persistance
+**Tarih:** 2026-05-14
+**Durum:** Kabul
+
+**Neden.** Polymarket data-api/lb-api/gamma-api'a yapilan cagrilar yogun (Sprint 01'de 7+ paralel; ileride yuzlerce/dakika). Senkron istemci kabul edilemez. Rate-limit Cloudflare-style sliding window — token bucket en uygun. Veri 100K+ satira cikinca CSV/JSON cok yavas, Pandas hafiza-yiyici.
+
+**Ne.** Kod katmani: `httpx.AsyncClient` (HTTP 1.1; HTTP/2 simdilik yok — `h2` dep'i gereksiz). `aiolimiter.AsyncLimiter` per-host (rate Cloudflare bucketinin %50'si — ayrintilar `pm_research/http.py`). `tenacity` retry: 5 try, exponential backoff 1–30s, sadece 429 + 5xx + transport hatalari. Persistance: Polars 1.40+ DataFrame, Parquet (pyarrow backend) `data/...` altinda gunluk dosyalar.
+
+**Alternatifler.** `aiohttp` (httpx daha modern, sync+async tek API), `requests + threading` (eski paradigma), Pandas (Polars 5–10x daha hizli, daha az hafiza), CSV (5x buyuk, tipsiz), DuckDB (Polars yeterli simdilik).

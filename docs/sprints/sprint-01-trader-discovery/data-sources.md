@@ -68,10 +68,12 @@
 
 | Path | Status | Anahtar query | Don |
 |---|---|---|---|
-| `/profit` | ✅ 200 | `period` (day/week/month/year/all), `limit` veya `address` | top-N profit list veya tek adres rank |
-| `/volume` | ✅ 200 | ayni | top-N volume list veya tek adres |
+| `/profit` | ✅ 200 | `period` (day/week/month/year/all), `limit` (HARD-CAP 50), `address` | top-50 profit veya tek adres |
+| `/volume` | ✅ 200 | ayni | top-50 volume veya tek adres |
 
 **Auth:** Yok. **Rate limit:** Dokumante degil; muhtemel ayni Cloudflare bucketi. Konservatif: <5 req/s baslangic.
+
+**KISIT (canli probe):** `/profit` ve `/volume` **maks 50 sonuc** dondurur, `limit` parametresi 50'nin uzerinde deger alinca yine 50 doner. Pagination da yok (`offset` parametresi yok-sayiliyor; her offset ayni 50'yi getiriyor). Bu yuzden tek board basina aday havuzu = top-50. Daha derin havuz icin **multiple period** (day/week/month/year/all) cross-section veya `/holders` per-market.
 
 #### Sample (`/profit?period=month&limit=3`):
 ```json
