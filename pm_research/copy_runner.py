@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -168,7 +169,7 @@ async def run(
                     continue
 
                 log.info("[%s] %d NEW trades", addr[:12], len(new_trades))
-                observed_at = int(t_start)
+                observed_at = int(time.time())
                 for t in sorted(new_trades, key=lambda x: int(x.get("timestamp") or 0)):
                     record = _trade_record(t, addr, observed_at)
                     _append_jsonl(trade_log, record)
@@ -187,12 +188,12 @@ async def run(
                         )
                         continue
 
-                    allowed, reason = check(decision, risk_state, limits)
+                    allowed, risk_reason = check(decision, risk_state, limits)
                     if not allowed:
-                        log.warning("  [risk-block] %s", reason)
+                        log.warning("  [risk-block] %s", risk_reason)
                         _append_jsonl(
                             paper_log,
-                            {"kind": "risk_block", "reason": reason, **asdict(decision)},
+                            {**asdict(decision), "kind": "risk_block", "risk_reason": risk_reason},
                         )
                         continue
 

@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
@@ -120,7 +121,7 @@ async def track(
                     log.info("[%s] baseline indexed %d trades", addr[:12], len(trades))
                 elif new_trades:
                     log.info("[%s] %d NEW trades", addr[:12], len(new_trades))
-                    observed_at = int(t_start)
+                    observed_at = int(time.time())
                     # log oldest first so JSONL is roughly chronological
                     for t in sorted(new_trades, key=lambda x: int(x.get("timestamp") or 0)):
                         _append_jsonl(today_path, _trade_record(t, addr, observed_at))

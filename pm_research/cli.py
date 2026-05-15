@@ -144,6 +144,8 @@ def main(argv: list[str] | None = None) -> int:
     cp.add_argument("--log-dir", default="data/copy")
     cp.add_argument("--iterations", type=int, default=None)
     cp.add_argument("--max-trade-usd", type=float, default=50.0)
+    cp.add_argument("--min-trade-usd", type=float, default=1.0,
+                    help="skip copies smaller than this (Polymarket markets enforce orderMinSize $5+)")
     cp.add_argument("--max-slippage", type=float, default=0.05)
     cp.add_argument("--max-gross-open", type=float, default=200.0)
     cp.add_argument("--max-per-target-open", type=float, default=100.0)
@@ -255,6 +257,7 @@ def main(argv: list[str] | None = None) -> int:
         cfg = copy_strategy.CopyConfig(
             targets=targets,
             max_size_per_trade_usd=args.max_trade_usd,
+            min_size_per_trade_usd=args.min_trade_usd,
             max_slippage_pct=args.max_slippage,
         )
         limits = risk_mod.RiskLimits(
