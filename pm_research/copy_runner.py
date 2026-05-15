@@ -3,6 +3,15 @@
 Default mode is PAPER (no real orders). Live mode requires --live flag in CLI
 plus explicit py-clob-client setup. Paper mode logs every decision so we can
 compare ex-post pnl against actual market resolution later.
+
+V2.2 in-poll fill aggregation: target traders (surfandturf, swisstony,
+LaBradfordSmith etc.) burst-execute by splitting one position into many
+micro-fills, each a separate API trade. Without aggregation, our copy
+strategy emits one decision per fill — most below the min_size threshold,
+so 80%+ get skipped. We instead group fills sharing (target, market,
+outcome, side) within the same poll and emit ONE decision for the merged
+size at VWAP price. Individual fills are still logged to observed_trades
+for analysis.
 """
 
 from __future__ import annotations
@@ -72,6 +81,45 @@ def _trade_record(trade: dict, target: str, observed_at: int) -> dict:
         "pseudonym": trade.get("pseudonym"),
         "name": trade.get("name"),
     }
+
+
+def aggregate_fills(records: list[dict]) -> list[dict]:
+    """Group fills by (target, conditionId, outcome, side) and emit a single
+    synthetic record per group with summed tokens and VWAP price.
+
+    Singleton groups pass through unchanged. Aggregates carry _aggregate_of
+    and _aggregate_tx_hashes for traceability.
+    """
+    groups: dict[tuple, list[dict]] = {}
+    order: list[tuple] = []
+    for r in records:
+        key = (r.get("target"), r.get("conditionId"), r.get("outcome"), r.get("side"))
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(r)
+
+    out: list[dict] = []
+    for key in order:
+        fills = groups[key]
+        if len(fills) == 1:
+            out.append(fills[0])
+            continue
+        total_tokens = sum(float(f.get("size") or 0) for f in fills)
+        total_usd = sum(float(f.get("size") or 0) * float(f.get("price") or 0) for f in fills)
+        if total_tokens <= 0:
+            out.append(fills[-1])
+            continue
+        vwap = total_usd / total_tokens
+        latest = max(fills, key=lambda f: int(f.get("ts") or f.get("timestamp") or 0))
+        agg = dict(latest)
+        agg["size"] = round(total_tokens, 6)
+        agg["price"] = round(vwap, 6)
+        agg["usd"] = round(total_usd, 4)
+        agg["_aggregate_of"] = len(fills)
+        agg["_aggregate_tx_hashes"] = [f.get("tx") or f.get("transactionHash") for f in fills]
+        out.append(agg)
+    return out
 
 
 async def _execute_paper(decision: CopyDecision, log_path: Path) -> dict:
@@ -170,11 +218,24 @@ async def run(
 
                 log.info("[%s] %d NEW trades", addr[:12], len(new_trades))
                 observed_at = int(time.time())
+
+                # 1) Log every individual fill (for analysis) and update dedup set.
+                fill_records: list[dict] = []
                 for t in sorted(new_trades, key=lambda x: int(x.get("timestamp") or 0)):
                     record = _trade_record(t, addr, observed_at)
                     _append_jsonl(trade_log, record)
                     seen[addr].add(t.get("transactionHash"))
+                    fill_records.append(record)
 
+                # 2) Aggregate fills sharing (target, market, outcome, side) into
+                #    a single synthetic trade for the decision layer.
+                aggregated = aggregate_fills(fill_records)
+                if len(aggregated) < len(fill_records):
+                    log.info(
+                        "  aggregated %d fills → %d decisions", len(fill_records), len(aggregated)
+                    )
+
+                for record in aggregated:
                     decision = decide(record, cfg)
                     _append_jsonl(decision_log, asdict(decision))
 
