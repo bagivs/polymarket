@@ -12,7 +12,17 @@ from pathlib import Path
 
 import polars as pl
 
-from . import discover, enrich as enrich_mod, metrics, profile, tracker as tracker_mod, validate as validate_mod
+from . import (
+    copy_runner,
+    copy_strategy,
+    discover,
+    enrich as enrich_mod,
+    metrics,
+    profile,
+    risk as risk_mod,
+    tracker as tracker_mod,
+    validate as validate_mod,
+)
 
 DEFAULT_LB_DIR = Path("data/leaderboard")
 DEFAULT_TRADERS_DIR = Path("data/traders")
@@ -108,6 +118,27 @@ def main(argv: list[str] | None = None) -> int:
     tt.add_argument("--iterations", type=int, default=None,
                     help="N polls then stop (default: run forever)")
 
+    cp = sub.add_parser(
+        "copy",
+        help="Run the copy-trade strategy (paper mode unless --live).",
+    )
+    cp.add_argument(
+        "--targets", nargs="+", required=True,
+        help="addr:weight pairs, e.g. 0xabc:0.01 0xdef:0.005 — weight is fraction of their size",
+    )
+    cp.add_argument("--poll", type=int, default=5)
+    cp.add_argument("--log-dir", default="data/copy")
+    cp.add_argument("--iterations", type=int, default=None)
+    cp.add_argument("--max-trade-usd", type=float, default=50.0)
+    cp.add_argument("--max-slippage", type=float, default=0.05)
+    cp.add_argument("--max-gross-open", type=float, default=200.0)
+    cp.add_argument("--max-per-target-open", type=float, default=100.0)
+    cp.add_argument("--max-daily-loss", type=float, default=50.0)
+    cp.add_argument("--max-copies-min", type=int, default=10)
+    cp.add_argument("--max-copies-hour", type=int, default=100)
+    cp.add_argument("--live", action="store_true",
+                    help="Submit real orders (requires py-clob-client + .env credentials).")
+
     vv = sub.add_parser(
         "validate",
         help="Reconcile lb-api per-period P&L against trade + redemption cashflow.",
@@ -173,6 +204,38 @@ def main(argv: list[str] | None = None) -> int:
             poll_interval_sec=args.poll,
             log_dir=Path(args.log_dir),
             iterations=args.iterations,
+        ))
+        return 0
+
+    if args.cmd == "copy":
+        targets: dict[str, float] = {}
+        addrs: list[str] = []
+        for pair in args.targets:
+            if ":" not in pair:
+                print(f"bad target spec '{pair}', expected addr:weight", file=sys.stderr)
+                return 2
+            a, w = pair.split(":", 1)
+            a = a.lower()
+            targets[a] = float(w)
+            addrs.append(a)
+        cfg = copy_strategy.CopyConfig(
+            targets=targets,
+            max_size_per_trade_usd=args.max_trade_usd,
+            max_slippage_pct=args.max_slippage,
+        )
+        limits = risk_mod.RiskLimits(
+            max_gross_open_usd=args.max_gross_open,
+            max_per_target_open_usd=args.max_per_target_open,
+            max_daily_realized_loss_usd=args.max_daily_loss,
+            max_copies_per_minute=args.max_copies_min,
+            max_copies_per_hour=args.max_copies_hour,
+        )
+        asyncio.run(copy_runner.run(
+            addrs, cfg, limits,
+            poll_interval_sec=args.poll,
+            log_dir=Path(args.log_dir),
+            iterations=args.iterations,
+            live=args.live,
         ))
         return 0
 
