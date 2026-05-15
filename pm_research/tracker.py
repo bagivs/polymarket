@@ -25,7 +25,7 @@ log = logging.getLogger(__name__)
 
 DEFAULT_POLL_SEC = 5
 DEFAULT_TRADES_PER_POLL = 50
-SEEN_CAP_PER_ADDR = 500  # rolling window of seen tx_hashes per address
+SEEN_CAP_PER_ADDR = 100_000  # see copy_runner.py for rationale
 
 
 def _state_load(path: Path) -> dict:
@@ -38,12 +38,9 @@ def _state_load(path: Path) -> dict:
         return {"seen_tx": {}}
 
 
-def _state_save(path: Path, seen_tx: dict[str, set[str]]) -> None:
+def _state_save(path: Path, seen_tx: dict[str, dict[str, int]]) -> None:
     path.write_text(
-        json.dumps(
-            {"seen_tx": {a: list(s) for a, s in seen_tx.items()}},
-            separators=(",", ":"),
-        )
+        json.dumps({"seen_tx": seen_tx}, separators=(",", ":"))
     )
 
 
@@ -92,7 +89,11 @@ async def track(
     state_path = state_path or (log_dir / "state.json")
 
     state = _state_load(state_path)
-    seen: dict[str, set[str]] = {a: set(state.get("seen_tx", {}).get(a, [])) for a in addresses}
+    raw = state.get("seen_tx", {})
+    seen: dict[str, dict[str, int]] = {}
+    for a in addresses:
+        v = raw.get(a, {})
+        seen[a] = {tx: 0 for tx in v} if isinstance(v, list) else dict(v)
     first_poll: dict[str, bool] = {a: (len(seen[a]) == 0) for a in addresses}
 
     log.info(
@@ -116,20 +117,26 @@ async def track(
                 new_trades = [t for t in trades if t.get("transactionHash") not in seen[addr]]
                 if first_poll[addr]:
                     # Baseline: index everything as seen, do not log
-                    seen[addr].update(t.get("transactionHash") for t in trades)
+                    for t in trades:
+                        tx = t.get("transactionHash")
+                        if tx:
+                            seen[addr][tx] = int(t.get("timestamp", 0))
                     first_poll[addr] = False
                     log.info("[%s] baseline indexed %d trades", addr[:12], len(trades))
                 elif new_trades:
                     log.info("[%s] %d NEW trades", addr[:12], len(new_trades))
                     observed_at = int(time.time())
-                    # log oldest first so JSONL is roughly chronological
                     for t in sorted(new_trades, key=lambda x: int(x.get("timestamp") or 0)):
                         _append_jsonl(today_path, _trade_record(t, addr, observed_at))
-                        seen[addr].add(t.get("transactionHash"))
+                        tx = t.get("transactionHash")
+                        if tx:
+                            seen[addr][tx] = int(t.get("timestamp", 0))
 
-                # Cap rolling window of seen hashes
+                # Trim oldest if cap exceeded (insertion-ordered dict)
                 if len(seen[addr]) > SEEN_CAP_PER_ADDR:
-                    seen[addr] = set(list(seen[addr])[-SEEN_CAP_PER_ADDR:])
+                    excess = len(seen[addr]) - SEEN_CAP_PER_ADDR
+                    for k in list(seen[addr].keys())[:excess]:
+                        del seen[addr][k]
 
             _state_save(state_path, seen)
             polls += 1

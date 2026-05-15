@@ -34,7 +34,10 @@ log = logging.getLogger(__name__)
 
 DEFAULT_POLL_SEC = 5
 DEFAULT_TRADES_PER_POLL = 50
-SEEN_CAP_PER_ADDR = 500
+SEEN_CAP_PER_ADDR = 100_000  # was 500 — way too small for high-frequency targets;
+# at 500 cap with set() (no insertion order), high-freq trades fall out and get
+# re-detected as "new" → 1000x duplicate logging within hours. 100k is safe
+# for ~24h of even the busiest target (LaBradfordSm peaked ~80k in past run).
 
 
 def _state_load(path: Path) -> dict:
@@ -46,10 +49,11 @@ def _state_load(path: Path) -> dict:
         return {"seen_tx": {}}
 
 
-def _state_save(path: Path, seen_tx: dict[str, set[str]]) -> None:
+def _state_save(path: Path, seen_tx: dict[str, dict[str, int]]) -> None:
+    """seen_tx now: addr -> {tx_hash: ts} (insertion-ordered dict)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        json.dumps({"seen_tx": {a: list(s) for a, s in seen_tx.items()}}, separators=(",", ":"))
+        json.dumps({"seen_tx": seen_tx}, separators=(",", ":"))
     )
 
 
@@ -184,7 +188,16 @@ async def run(
     risk_path = log_dir / "risk_state.json"
 
     seen_state = _state_load(state_path)
-    seen: dict[str, set[str]] = {a: set(seen_state.get("seen_tx", {}).get(a, [])) for a in addresses}
+    # Per-address ordered dict: tx_hash -> timestamp. Insertion order preserved
+    # so we can trim oldest when SEEN_CAP_PER_ADDR is exceeded.
+    raw_seen = seen_state.get("seen_tx", {})
+    seen: dict[str, dict[str, int]] = {}
+    for a in addresses:
+        v = raw_seen.get(a, {})
+        if isinstance(v, list):  # legacy: list of tx hashes (no ts)
+            seen[a] = {tx: 0 for tx in v}
+        else:
+            seen[a] = dict(v)
     first_poll: dict[str, bool] = {a: (len(seen[a]) == 0) for a in addresses}
     risk_state = RiskState.load(risk_path)
 
@@ -208,7 +221,10 @@ async def run(
 
                 new_trades = [t for t in trades if t.get("transactionHash") not in seen[addr]]
                 if first_poll[addr]:
-                    seen[addr].update(t.get("transactionHash") for t in trades)
+                    for t in trades:
+                        tx = t.get("transactionHash")
+                        if tx:
+                            seen[addr][tx] = int(t.get("timestamp", 0))
                     first_poll[addr] = False
                     log.info("[%s] baseline indexed %d trades", addr[:12], len(trades))
                     continue
@@ -224,7 +240,9 @@ async def run(
                 for t in sorted(new_trades, key=lambda x: int(x.get("timestamp") or 0)):
                     record = _trade_record(t, addr, observed_at)
                     _append_jsonl(trade_log, record)
-                    seen[addr].add(t.get("transactionHash"))
+                    tx = t.get("transactionHash")
+                    if tx:
+                        seen[addr][tx] = int(t.get("timestamp", 0))
                     fill_records.append(record)
 
                 # 2) Aggregate fills sharing (target, market, outcome, side) into
@@ -276,8 +294,11 @@ async def run(
                             decision.our_target_usd,
                         )
 
+                # Insertion-ordered trim: drop oldest entries when cap exceeded
                 if len(seen[addr]) > SEEN_CAP_PER_ADDR:
-                    seen[addr] = set(list(seen[addr])[-SEEN_CAP_PER_ADDR:])
+                    excess = len(seen[addr]) - SEEN_CAP_PER_ADDR
+                    for k in list(seen[addr].keys())[:excess]:
+                        del seen[addr][k]
 
             _state_save(state_path, seen)
             risk_state.save(risk_path)
