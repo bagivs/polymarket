@@ -147,6 +147,8 @@ def main(argv: list[str] | None = None) -> int:
     cp.add_argument("--min-trade-usd", type=float, default=1.0,
                     help="skip copies smaller than this (Polymarket markets enforce orderMinSize $5+)")
     cp.add_argument("--max-slippage", type=float, default=0.05)
+    cp.add_argument("--skip-underdog-below", type=float, default=None,
+                    help="skip copies where their_price < this (e.g. 0.45)")
     cp.add_argument("--max-gross-open", type=float, default=200.0)
     cp.add_argument("--max-per-target-open", type=float, default=100.0)
     cp.add_argument("--max-daily-loss", type=float, default=50.0)
@@ -259,6 +261,7 @@ def main(argv: list[str] | None = None) -> int:
             max_size_per_trade_usd=args.max_trade_usd,
             min_size_per_trade_usd=args.min_trade_usd,
             max_slippage_pct=args.max_slippage,
+            skip_underdog_below=args.skip_underdog_below,
         )
         limits = risk_mod.RiskLimits(
             max_gross_open_usd=args.max_gross_open,

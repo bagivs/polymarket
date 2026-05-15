@@ -37,6 +37,10 @@ class CopyConfig:
     skip_sells: bool = True
     """V1: only mirror BUYs (winners almost never sell directly)."""
 
+    skip_underdog_below: float | None = None
+    """If set, skip when their_price < this (e.g. 0.45 to skip underdog bucket).
+    Backtest 2026-05-15: cohort underdog ROI only +5% vs +33% favorite/+54% neutral."""
+
 
 @dataclass
 class CopyDecision:
@@ -101,6 +105,11 @@ def decide(trade_record: dict, cfg: CopyConfig) -> CopyDecision:
         return base
     if their_price > cfg.skip_if_their_price_above:
         base.reason = f"their_price {their_price:.3f} > {cfg.skip_if_their_price_above}"
+        return base
+    if cfg.skip_underdog_below is not None and their_price < cfg.skip_underdog_below:
+        base.reason = (
+            f"underdog: their_price {their_price:.3f} < {cfg.skip_underdog_below}"
+        )
         return base
     if lag > cfg.skip_if_lag_above_sec:
         base.reason = f"lag {lag}s > {cfg.skip_if_lag_above_sec}s"
