@@ -18,6 +18,7 @@ from typing import Iterable
 from . import data_api, http
 from .copy_strategy import CopyConfig, CopyDecision, decide
 from .risk import RiskLimits, RiskState, book_open, check
+from .executor import Executor
 
 log = logging.getLogger(__name__)
 
@@ -83,6 +84,33 @@ async def _execute_paper(decision: CopyDecision, log_path: Path) -> dict:
     return rec
 
 
+async def _execute_live(
+    decision: CopyDecision, executor: Executor, log_path: Path
+) -> dict:
+    """Submit a real GTC limit BUY via py-clob-client. Logs both attempt and result."""
+    record_base = {
+        "kind": "live_order",
+        "ts_utc": datetime.now(timezone.utc).isoformat(),
+        **asdict(decision),
+    }
+    try:
+        # py-clob-client is sync; run in thread pool to avoid blocking the loop.
+        resp = await asyncio.to_thread(
+            executor.post_buy,
+            token_id=decision.asset_id,
+            max_price=decision.our_max_price,
+            size_tokens=decision.our_target_size_tokens,
+        )
+        record_base["result"] = "submitted"
+        record_base["api_response"] = resp
+    except Exception as exc:
+        record_base["result"] = "error"
+        record_base["error"] = str(exc)
+        log.error("live order failed: %s", exc)
+    _append_jsonl(log_path, record_base)
+    return record_base
+
+
 async def run(
     addresses: Iterable[str],
     cfg: CopyConfig,
@@ -92,11 +120,10 @@ async def run(
     log_dir: Path = Path("data/copy"),
     iterations: int | None = None,
     live: bool = False,
+    executor: Executor | None = None,
 ) -> None:
-    if live:
-        raise NotImplementedError(
-            "live mode requires py-clob-client integration (V2.1). Currently paper-only."
-        )
+    if live and executor is None:
+        raise RuntimeError("live=True requires an Executor instance")
 
     addresses = [a.lower() for a in addresses]
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -170,13 +197,22 @@ async def run(
                         continue
 
                     book_open(risk_state, decision.target_addr, decision.our_target_usd)
-                    rec = await _execute_paper(decision, paper_log)
-                    log.info(
-                        "  [paper-order] %s/%s size=%.2f tokens @ <=$%.4f, ours=$%.2f",
-                        decision.market_title[:30], decision.outcome,
-                        decision.our_target_size_tokens, decision.our_max_price,
-                        decision.our_target_usd,
-                    )
+                    if live and executor is not None:
+                        rec = await _execute_live(decision, executor, paper_log)
+                        log.info(
+                            "  [LIVE-order:%s] %s/%s size=%.2f @ <=$%.4f, ours=$%.2f",
+                            rec.get("result"), decision.market_title[:30], decision.outcome,
+                            decision.our_target_size_tokens, decision.our_max_price,
+                            decision.our_target_usd,
+                        )
+                    else:
+                        rec = await _execute_paper(decision, paper_log)
+                        log.info(
+                            "  [paper-order] %s/%s size=%.2f tokens @ <=$%.4f, ours=$%.2f",
+                            decision.market_title[:30], decision.outcome,
+                            decision.our_target_size_tokens, decision.our_max_price,
+                            decision.our_target_usd,
+                        )
 
                 if len(seen[addr]) > SEEN_CAP_PER_ADDR:
                     seen[addr] = set(list(seen[addr])[-SEEN_CAP_PER_ADDR:])

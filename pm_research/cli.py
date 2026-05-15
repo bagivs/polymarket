@@ -23,6 +23,7 @@ from . import (
     tracker as tracker_mod,
     validate as validate_mod,
 )
+from . import executor as executor_mod
 
 DEFAULT_LB_DIR = Path("data/leaderboard")
 DEFAULT_TRADERS_DIR = Path("data/traders")
@@ -118,6 +119,19 @@ def main(argv: list[str] | None = None) -> int:
     tt.add_argument("--iterations", type=int, default=None,
                     help="N polls then stop (default: run forever)")
 
+    pf = sub.add_parser(
+        "preflight",
+        help="Test live-execution setup (auth, balance, allowance) WITHOUT placing orders.",
+    )
+    pf.add_argument("--sig-type", type=int, default=2,
+                    help="signature_type: 0=EOA, 1=POLY_PROXY, 2=POLY_GNOSIS_SAFE (default 2)")
+
+    aa = sub.add_parser(
+        "set-allowance",
+        help="One-time: approve the CTF exchange to spend our USDC.",
+    )
+    aa.add_argument("--sig-type", type=int, default=2)
+
     cp = sub.add_parser(
         "copy",
         help="Run the copy-trade strategy (paper mode unless --live).",
@@ -207,6 +221,26 @@ def main(argv: list[str] | None = None) -> int:
         ))
         return 0
 
+    if args.cmd == "preflight":
+        cfg = executor_mod.config_from_env()
+        cfg = executor_mod.ExecutorConfig(**{**cfg.__dict__, "signature_type": args.sig_type})
+        ex = executor_mod.Executor(cfg)
+        result = ex.preflight()
+        print(json.dumps(result, indent=2, default=str))
+        return 0 if not result["errors"] and result["l1_auth"] == "ok" and result["l2_auth"] == "ok" else 1
+
+    if args.cmd == "set-allowance":
+        cfg = executor_mod.config_from_env()
+        cfg = executor_mod.ExecutorConfig(**{**cfg.__dict__, "signature_type": args.sig_type})
+        ex = executor_mod.Executor(cfg)
+        try:
+            result = ex.set_usdc_allowance()
+            print(json.dumps({"status": "submitted", "result": str(result)}, indent=2))
+            return 0
+        except Exception as exc:
+            print(json.dumps({"status": "error", "error": str(exc)}, indent=2))
+            return 1
+
     if args.cmd == "copy":
         targets: dict[str, float] = {}
         addrs: list[str] = []
@@ -230,12 +264,22 @@ def main(argv: list[str] | None = None) -> int:
             max_copies_per_minute=args.max_copies_min,
             max_copies_per_hour=args.max_copies_hour,
         )
+        executor = None
+        if args.live:
+            ex_cfg = executor_mod.config_from_env()
+            executor = executor_mod.Executor(ex_cfg)
+            pre = executor.preflight()
+            if pre["l1_auth"] != "ok" or pre["l2_auth"] != "ok":
+                print(json.dumps({"error": "preflight failed", "preflight": pre}, indent=2))
+                return 2
+            print(f"# LIVE mode confirmed; balance={pre['usdc_balance']}", file=sys.stderr)
         asyncio.run(copy_runner.run(
             addrs, cfg, limits,
             poll_interval_sec=args.poll,
             log_dir=Path(args.log_dir),
             iterations=args.iterations,
             live=args.live,
+            executor=executor,
         ))
         return 0
 
