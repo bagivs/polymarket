@@ -133,6 +133,28 @@ Acik pozisyon: `cat data/copy/risk_state.json | python3 -m json.tool`
 
 ---
 
+## ZOMBIE PROCESS riski (2026-05-16 ogrenilen)
+
+`nohup` ile baslatilan process bash session olunce ortada kalir. `kill $(cat copy.pid)` sadece bu PID'i oldurur, onceki nohup'lardan kalan zombie'leri **yakalamaz**. 5 zombie ayni log dosyasina yazinca dedup yanilir gibi gorunur.
+
+**Dogru stop protokolu:**
+```bash
+PID=$(cat data/copy/copy.pid)
+kill $PID
+sleep 2
+# Verify NOTHING leftover (uses python3 in pattern to avoid matching this very command)
+if pgrep -f 'python3.*pm_research' > /dev/null; then
+  echo "ZOMBIE detected, killing all..."
+  pgrep -f 'python3.*pm_research' | xargs kill
+  sleep 2
+fi
+pgrep -f 'python3.*pm_research' && echo "STILL ALIVE — manual check needed" || echo "✅ clean"
+```
+
+**Restart oncesi her zaman:** önce yukaridaki kontrol, sonra `rm -f data/copy/{copy.pid,copy.log}`, sonra fresh nohup baslat.
+
+---
+
 ## Acil durum protokolu
 
 ### "Pozisyon stuck, fill olmuyor"
