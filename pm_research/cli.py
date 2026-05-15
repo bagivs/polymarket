@@ -12,7 +12,7 @@ from pathlib import Path
 
 import polars as pl
 
-from . import discover, enrich as enrich_mod, metrics, profile, validate as validate_mod
+from . import discover, enrich as enrich_mod, metrics, profile, tracker as tracker_mod, validate as validate_mod
 
 DEFAULT_LB_DIR = Path("data/leaderboard")
 DEFAULT_TRADERS_DIR = Path("data/traders")
@@ -98,6 +98,16 @@ def main(argv: list[str] | None = None) -> int:
     ee.add_argument("--out", type=Path,
                     help="Output parquet path (default: <date>_candidates_v2.parquet next to input)")
 
+    tt = sub.add_parser(
+        "track",
+        help="Read-only copy-trade tracker — poll target addresses and log new trades",
+    )
+    tt.add_argument("--addresses", nargs="+", required=False)
+    tt.add_argument("--poll", type=int, default=5, help="poll interval seconds")
+    tt.add_argument("--log-dir", default="data/tracker")
+    tt.add_argument("--iterations", type=int, default=None,
+                    help="N polls then stop (default: run forever)")
+
     vv = sub.add_parser(
         "validate",
         help="Reconcile lb-api per-period P&L against trade + redemption cashflow.",
@@ -151,6 +161,19 @@ def main(argv: list[str] | None = None) -> int:
         cands = args.candidates or _latest_candidates(args.lb_dir)
         summary = asyncio.run(enrich_mod.enrich(cands, out_path=args.out))
         print(json.dumps(summary, indent=2, default=str))
+        return 0
+
+    if args.cmd == "track":
+        addrs = args.addresses or []
+        if not addrs:
+            print(json.dumps({"error": "no addresses given"}, indent=2))
+            return 2
+        asyncio.run(tracker_mod.track(
+            addrs,
+            poll_interval_sec=args.poll,
+            log_dir=Path(args.log_dir),
+            iterations=args.iterations,
+        ))
         return 0
 
     if args.cmd == "validate":
