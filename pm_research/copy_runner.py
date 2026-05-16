@@ -4,14 +4,14 @@ Default mode is PAPER (no real orders). Live mode requires --live flag in CLI
 plus explicit py-clob-client setup. Paper mode logs every decision so we can
 compare ex-post pnl against actual market resolution later.
 
-V2.2 in-poll fill aggregation: target traders (surfandturf, swisstony,
-LaBradfordSmith etc.) burst-execute by splitting one position into many
-micro-fills, each a separate API trade. Without aggregation, our copy
-strategy emits one decision per fill — most below the min_size threshold,
-so 80%+ get skipped. We instead group fills sharing (target, market,
-outcome, side) within the same poll and emit ONE decision for the merged
-size at VWAP price. Individual fills are still logged to observed_trades
-for analysis.
+V2.2 in-poll aggregation merged fills sharing (target, market, outcome, side)
+WITHIN a single poll cycle. V2.3 generalises this to CROSS-POLL: fills are
+buffered per group; an aggregate emits when either (a) the first fill is
+`aggregate_max_sec` old (force timeout) or (b) no new fill has arrived for
+`aggregate_quiet_sec` (burst quieted). This catches the common case where
+a single trader's position-build spans 30-120 seconds across many polls.
+Backtest tolerates 30-60s additional decision lag (still +ROI per
+findings-v2-backtest.md).
 """
 
 from __future__ import annotations
@@ -103,27 +103,77 @@ def aggregate_fills(records: list[dict]) -> list[dict]:
             order.append(key)
         groups[key].append(r)
 
-    out: list[dict] = []
-    for key in order:
-        fills = groups[key]
-        if len(fills) == 1:
-            out.append(fills[0])
-            continue
-        total_tokens = sum(float(f.get("size") or 0) for f in fills)
-        total_usd = sum(float(f.get("size") or 0) * float(f.get("price") or 0) for f in fills)
-        if total_tokens <= 0:
-            out.append(fills[-1])
-            continue
-        vwap = total_usd / total_tokens
-        latest = max(fills, key=lambda f: int(f.get("ts") or f.get("timestamp") or 0))
-        agg = dict(latest)
-        agg["size"] = round(total_tokens, 6)
-        agg["price"] = round(vwap, 6)
-        agg["usd"] = round(total_usd, 4)
-        agg["_aggregate_of"] = len(fills)
-        agg["_aggregate_tx_hashes"] = [f.get("tx") or f.get("transactionHash") for f in fills]
-        out.append(agg)
-    return out
+    return [_merge_fills(groups[key]) for key in order]
+
+
+def _merge_fills(fills: list[dict]) -> dict:
+    if len(fills) == 1:
+        return fills[0]
+    total_tokens = sum(float(f.get("size") or 0) for f in fills)
+    total_usd = sum(float(f.get("size") or 0) * float(f.get("price") or 0) for f in fills)
+    if total_tokens <= 0:
+        return fills[-1]
+    vwap = total_usd / total_tokens
+    latest = max(fills, key=lambda f: int(f.get("ts") or f.get("timestamp") or 0))
+    agg = dict(latest)
+    agg["size"] = round(total_tokens, 6)
+    agg["price"] = round(vwap, 6)
+    agg["usd"] = round(total_usd, 4)
+    agg["_aggregate_of"] = len(fills)
+    agg["_aggregate_tx_hashes"] = [f.get("tx") or f.get("transactionHash") for f in fills]
+    return agg
+
+
+class CrossPollAggregator:
+    """Buffer fills per (target, conditionId, outcome, side); emit aggregated
+    records when the position's first fill ages past `max_window_sec` (force
+    timeout) OR when no new fill has arrived for `quiet_window_sec` (burst
+    quieted).
+    """
+
+    def __init__(self, max_window_sec: int = 30, quiet_window_sec: int = 5) -> None:
+        self.max_window_sec = max_window_sec
+        self.quiet_window_sec = quiet_window_sec
+        self.pending: dict[tuple, dict] = {}
+
+    def add(self, record: dict) -> None:
+        key = (
+            record.get("target"),
+            record.get("conditionId"),
+            record.get("outcome"),
+            record.get("side"),
+        )
+        ts = int(record.get("ts") or record.get("timestamp") or 0)
+        slot = self.pending.get(key)
+        if slot is None:
+            self.pending[key] = {"fills": [record], "first_ts": ts, "last_ts": ts}
+        else:
+            slot["fills"].append(record)
+            slot["last_ts"] = max(slot["last_ts"], ts)
+
+    def emit_ready(self, now_ts: int) -> list[dict]:
+        """Return aggregated records whose buffer expired; remove them from pending."""
+        out: list[dict] = []
+        for key in list(self.pending.keys()):
+            slot = self.pending[key]
+            first_age = now_ts - slot["first_ts"]
+            last_age = now_ts - slot["last_ts"]
+            if (
+                first_age >= self.max_window_sec
+                or last_age >= self.quiet_window_sec
+            ):
+                out.append(_merge_fills(slot["fills"]))
+                del self.pending[key]
+        return out
+
+    def flush_all(self) -> list[dict]:
+        """Emit everything pending (for shutdown)."""
+        out = [_merge_fills(slot["fills"]) for slot in self.pending.values()]
+        self.pending.clear()
+        return out
+
+    def size(self) -> int:
+        return len(self.pending)
 
 
 async def _execute_paper(decision: CopyDecision, log_path: Path) -> dict:
@@ -174,11 +224,16 @@ async def run(
     iterations: int | None = None,
     live: bool = False,
     executor: Executor | None = None,
+    aggregate_max_sec: int = 30,
+    aggregate_quiet_sec: int = 5,
 ) -> None:
     if live and executor is None:
         raise RuntimeError("live=True requires an Executor instance")
 
     addresses = [a.lower() for a in addresses]
+    aggregator = CrossPollAggregator(
+        max_window_sec=aggregate_max_sec, quiet_window_sec=aggregate_quiet_sec
+    )
     log_dir.mkdir(parents=True, exist_ok=True)
     today = datetime.now(timezone.utc).strftime("%Y%m%d")
     trade_log = log_dir / f"observed_trades_{today}.jsonl"
@@ -245,56 +300,60 @@ async def run(
                         seen[addr][tx] = int(t.get("timestamp", 0))
                     fill_records.append(record)
 
-                # 2) Aggregate fills sharing (target, market, outcome, side) into
-                #    a single synthetic trade for the decision layer.
-                aggregated = aggregate_fills(fill_records)
-                if len(aggregated) < len(fill_records):
+                # 2) Push every fill into the cross-poll aggregator; emit
+                #    happens later (after polling all addresses) when timing
+                #    thresholds are met.
+                for record in fill_records:
+                    aggregator.add(record)
+
+            # End of this poll cycle — emit any aggregates whose window expired.
+            now_ts = int(time.time())
+            ready = aggregator.emit_ready(now_ts)
+            if ready:
+                log.info("  cross-poll emit: %d aggregates (pending=%d)", len(ready), aggregator.size())
+            for record in ready:
+                decision = decide(record, cfg)
+                _append_jsonl(decision_log, asdict(decision))
+
+                if decision.decision != "copy":
                     log.info(
-                        "  aggregated %d fills → %d decisions", len(fill_records), len(aggregated)
+                        "  [skip %s/%s] %s — ",
+                        decision.market_title[:30],
+                        decision.outcome,
+                        decision.reason,
+                    )
+                    continue
+
+                allowed, risk_reason = check(decision, risk_state, limits)
+                if not allowed:
+                    log.warning("  [risk-block] %s", risk_reason)
+                    _append_jsonl(
+                        paper_log,
+                        {**asdict(decision), "kind": "risk_block", "risk_reason": risk_reason},
+                    )
+                    continue
+
+                book_open(risk_state, decision.target_addr, decision.our_target_usd)
+                if live and executor is not None:
+                    rec = await _execute_live(decision, executor, paper_log)
+                    log.info(
+                        "  [LIVE-order:%s] %s/%s size=%.2f @ <=$%.4f, ours=$%.2f",
+                        rec.get("result"), decision.market_title[:30], decision.outcome,
+                        decision.our_target_size_tokens, decision.our_max_price,
+                        decision.our_target_usd,
+                    )
+                else:
+                    rec = await _execute_paper(decision, paper_log)
+                    log.info(
+                        "  [paper-order] %s/%s size=%.2f tokens @ <=$%.4f, ours=$%.2f",
+                        decision.market_title[:30], decision.outcome,
+                        decision.our_target_size_tokens, decision.our_max_price,
+                        decision.our_target_usd,
                     )
 
-                for record in aggregated:
-                    decision = decide(record, cfg)
-                    _append_jsonl(decision_log, asdict(decision))
-
-                    if decision.decision != "copy":
-                        log.info(
-                            "  [skip %s/%s] %s — %s",
-                            decision.market_title[:30],
-                            decision.outcome,
-                            decision.reason,
-                            "",
-                        )
-                        continue
-
-                    allowed, risk_reason = check(decision, risk_state, limits)
-                    if not allowed:
-                        log.warning("  [risk-block] %s", risk_reason)
-                        _append_jsonl(
-                            paper_log,
-                            {**asdict(decision), "kind": "risk_block", "risk_reason": risk_reason},
-                        )
-                        continue
-
-                    book_open(risk_state, decision.target_addr, decision.our_target_usd)
-                    if live and executor is not None:
-                        rec = await _execute_live(decision, executor, paper_log)
-                        log.info(
-                            "  [LIVE-order:%s] %s/%s size=%.2f @ <=$%.4f, ours=$%.2f",
-                            rec.get("result"), decision.market_title[:30], decision.outcome,
-                            decision.our_target_size_tokens, decision.our_max_price,
-                            decision.our_target_usd,
-                        )
-                    else:
-                        rec = await _execute_paper(decision, paper_log)
-                        log.info(
-                            "  [paper-order] %s/%s size=%.2f tokens @ <=$%.4f, ours=$%.2f",
-                            decision.market_title[:30], decision.outcome,
-                            decision.our_target_size_tokens, decision.our_max_price,
-                            decision.our_target_usd,
-                        )
-
-                # Insertion-ordered trim: drop oldest entries when cap exceeded
+            # The trailing dedup-trim logic must run AFTER aggregator emit so it
+            # doesn't interfere with the in-poll bookkeeping.
+            for addr in addresses:
                 if len(seen[addr]) > SEEN_CAP_PER_ADDR:
                     excess = len(seen[addr]) - SEEN_CAP_PER_ADDR
                     for k in list(seen[addr].keys())[:excess]:

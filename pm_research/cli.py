@@ -149,6 +149,10 @@ def main(argv: list[str] | None = None) -> int:
     cp.add_argument("--max-slippage", type=float, default=0.05)
     cp.add_argument("--skip-underdog-below", type=float, default=None,
                     help="skip copies where their_price < this (e.g. 0.45)")
+    cp.add_argument("--aggregate-window-sec", type=int, default=30,
+                    help="V2.3 cross-poll aggregator: force emit after N seconds")
+    cp.add_argument("--aggregate-quiet-sec", type=int, default=5,
+                    help="V2.3 cross-poll aggregator: emit if no new fill for N seconds")
     cp.add_argument("--max-gross-open", type=float, default=200.0)
     cp.add_argument("--max-per-target-open", type=float, default=100.0)
     cp.add_argument("--max-daily-loss", type=float, default=50.0)
@@ -286,6 +290,8 @@ def main(argv: list[str] | None = None) -> int:
             iterations=args.iterations,
             live=args.live,
             executor=executor,
+            aggregate_max_sec=args.aggregate_window_sec,
+            aggregate_quiet_sec=args.aggregate_quiet_sec,
         ))
         return 0
 
