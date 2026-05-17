@@ -65,3 +65,25 @@ trades is the most signal-rich data point.
 1. Both paper runners restarted with new weights (king removed)
 2. Forward V3 live execution will use king-removed cohort
 3. Continue 24h paper monitoring; cross-validate against backtest
+
+## V2 weight tweak (2026-05-18, 48h paper-data review)
+
+After 48h paper-run with king-removed cohort, 76 of 273 paper-orders
+resolved. Per-trader empirical results contradicted backtest in one case:
+
+| Trader | Backtest ROI | Paper-real ROI | Note |
+|---|---|---|---|
+| **LaBradfordSm** | +12.1% | **+48.4%** (n=22) | massively beat — STAR |
+| surfandturf | +23.3% | +42.1% (n=4) | sample too small to weight |
+| **swisstony** | **+40.6%** | **-4.8%** (n=50) | underperformed — 70% win rate but small wins, big losses |
+
+Whole-cohort empirical: +25.45% ROI (vs +17.4% backtest projection).
+NEW-era only (post-king-removal): +25.44% on $257 invested, $65 PnL.
+
+Weights tweaked to follow empirical performance:
+  surfandturf  0.01    same  (small sample, keep)
+  LaBradfordSm 0.01  → 0.015 (1.5x up — empirical star, +$75 on 22 trades)
+  swisstony    0.015 → 0.005 (3x down — empirical loser, -$7 on 50 trades)
+
+Runners restarted with revised weights (paper + live-realistic).
+12h additional monitoring; if stable → V3 live execution (real USDC).
