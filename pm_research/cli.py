@@ -20,6 +20,7 @@ from . import (
     metrics,
     profile,
     risk as risk_mod,
+    proposals,
     scan as scan_mod,
     tracker as tracker_mod,
     validate as validate_mod,
@@ -108,6 +109,21 @@ def main(argv: list[str] | None = None) -> int:
     sc.add_argument("--lb-limit", type=int, default=50)
     sc.add_argument("--global-pages", type=int, default=7)
     sc.add_argument("--top-active", type=int, default=100)
+
+    pp_args = sub.add_parser("propose", help="Show new cohort candidates from latest scan")
+    pp_args.add_argument("--min-1m", type=float, default=200000.0)
+    pp_args.add_argument("--min-1w", type=float, default=20000.0)
+    pp_args.add_argument("--scan-dir", type=Path, default=Path("data/scans"))
+
+    aa_args = sub.add_parser("approve", help="Add address to active cohort (manual restart needed)")
+    aa_args.add_argument("--address", required=True)
+    aa_args.add_argument("--weight", type=float, required=True)
+
+    rj_args = sub.add_parser("reject", help="Mark address as rejected (won't be re-proposed)")
+    rj_args.add_argument("--address", required=True)
+
+    rm_args = sub.add_parser("remove", help="Remove address from active cohort")
+    rm_args.add_argument("--address", required=True)
 
     ee = sub.add_parser(
         "enrich",
@@ -228,6 +244,25 @@ def main(argv: list[str] | None = None) -> int:
             top_active_addresses=args.top_active,
         ))
         print(json.dumps(summary, indent=2, default=str))
+        return 0
+
+
+    if args.cmd == "propose":
+        print(json.dumps(proposals.find_proposals(
+            scan_dir=args.scan_dir, min_1m_pnl=args.min_1m, min_1w_pnl=args.min_1w
+        ), indent=2, default=str))
+        return 0
+
+    if args.cmd == "approve":
+        print(json.dumps(proposals.approve(args.address, args.weight), indent=2))
+        return 0
+
+    if args.cmd == "reject":
+        print(json.dumps(proposals.reject(args.address), indent=2))
+        return 0
+
+    if args.cmd == "remove":
+        print(json.dumps(proposals.remove(args.address), indent=2))
         return 0
 
     if args.cmd == "enrich":
