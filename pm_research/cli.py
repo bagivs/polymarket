@@ -20,6 +20,7 @@ from . import (
     metrics,
     profile,
     risk as risk_mod,
+    scan as scan_mod,
     tracker as tracker_mod,
     validate as validate_mod,
 )
@@ -98,6 +99,15 @@ def main(argv: list[str] | None = None) -> int:
                     help="Candidates parquet (default: latest under data/leaderboard)")
     pp.add_argument("--lb-dir", type=Path, default=DEFAULT_LB_DIR)
     pp.add_argument("--out", type=Path, default=DEFAULT_TRADERS_DIR)
+
+    sc = sub.add_parser(
+        "scan",
+        help="Full continuous discovery: lb-api + global active scan + user-pnl enrich + cohort",
+    )
+    sc.add_argument("--out-dir", type=Path, default=Path("data/scans"))
+    sc.add_argument("--lb-limit", type=int, default=50)
+    sc.add_argument("--global-pages", type=int, default=7)
+    sc.add_argument("--top-active", type=int, default=100)
 
     ee = sub.add_parser(
         "enrich",
@@ -207,6 +217,16 @@ def main(argv: list[str] | None = None) -> int:
             "fingerprints_path": str(agg_path),
             "cohort_summary": metrics.cohort_summary(fps),
         }
+        print(json.dumps(summary, indent=2, default=str))
+        return 0
+
+    if args.cmd == "scan":
+        summary = asyncio.run(scan_mod.run_scan(
+            out_dir=args.out_dir,
+            lb_limit=args.lb_limit,
+            global_scan_pages=args.global_pages,
+            top_active_addresses=args.top_active,
+        ))
         print(json.dumps(summary, indent=2, default=str))
         return 0
 
